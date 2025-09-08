@@ -1,0 +1,121 @@
+<?php
+header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/data.php';
+
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '/API.php';
+$script = $_SERVER['SCRIPT_NAME'] ?? '/API.php';
+
+// Normalize to route part after script name (e.g., /API.php/article -> /article)
+$route = '/';
+if (strpos($path, $script) === 0) {
+	$route = substr($path, strlen($script));
+	if ($route === false || $route === '') { $route = '/'; }
+}
+
+// Helper: read JSON body
+function read_json_body(): array {
+	$raw = file_get_contents('php://input');
+	if ($raw === false || $raw === '') return [];
+	$data = json_decode($raw, true);
+	return is_array($data) ? $data : [];
+}
+
+try {
+	if ($route === '/setup' && $method === 'POST') {
+		// Create table if not exists using user's schema
+		$sql = "CREATE TABLE IF NOT EXISTS `article` (
+			`article_id` int(11) NOT NULL AUTO_INCREMENT,
+			`article_link` varchar(255) NOT NULL,
+			`article_tag` varchar(100) NOT NULL,
+			`article_author` varchar(100) NOT NULL,
+			`article_title` varchar(255) NOT NULL,
+			`article_summary` text NOT NULL,
+			`article_content` text NOT NULL,
+			`article_image` varchar(255) NOT NULL,
+			`article_date` date NOT NULL,
+			`article_status` int(11) NOT NULL DEFAULT 0,
+			PRIMARY KEY (`article_id`),
+			KEY `idx_article_date` (`article_date`),
+			KEY `idx_article_status` (`article_status`)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+		db()->exec($sql);
+		json_ok(['message' => 'Table `article` ensured']);
+	}
+
+	if ($route === '/article' && $method === 'POST') {
+		$input = read_json_body();
+		$required = ['article_link','article_tag','article_author','article_title','article_summary','article_content','article_image','article_date'];
+		foreach ($required as $field) {
+			if (!isset($input[$field]) || trim((string)$input[$field]) === '') {
+				json_error("Missing field: $field", 400);
+			}
+		}
+
+		$stmt = db()->prepare('INSERT INTO article (
+			article_link, article_tag, article_author, article_title, article_summary,
+			article_content, article_image, article_date, article_status
+		) VALUES (
+			:article_link, :article_tag, :article_author, :article_title, :article_summary,
+			:article_content, :article_image, :article_date, :article_status
+		)');
+		$articleStatus = isset($input['article_status']) ? (int)$input['article_status'] : 0;
+		$stmt->execute([
+			':article_link' => $input['article_link'],
+			':article_tag' => $input['article_tag'],
+			':article_author' => $input['article_author'],
+			':article_title' => $input['article_title'],
+			':article_summary' => $input['article_summary'],
+			':article_content' => $input['article_content'],
+			':article_image' => $input['article_image'],
+			':article_date' => $input['article_date'],
+			':article_status' => $articleStatus,
+		]);
+
+		$id = (int)db()->lastInsertId();
+		json_ok(['message' => 'Inserted', 'article_id' => $id], 201);
+	}
+
+	if ($route === '/article' && $method === 'GET') {
+		$page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
+		$limit = isset($_GET['limit']) ? max(1, min(100, (int)$_GET['limit'])) : 10;
+		$offset = ($page - 1) * $limit;
+
+		$where = [];
+		$params = [];
+		if (isset($_GET['status'])) {
+			$where[] = 'article_status = :status';
+			$params[':status'] = (int)$_GET['status'];
+		}
+		if (isset($_GET['tag'])) {
+			$where[] = 'article_tag = :tag';
+			$params[':tag'] = (string)$_GET['tag'];
+		}
+		$whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
+
+		$total = (int)db()->query("SELECT COUNT(*) FROM article {$whereSql}")->fetchColumn();
+		$sql = "SELECT * FROM article {$whereSql} ORDER BY article_date DESC, article_id DESC LIMIT :limit OFFSET :offset";
+		$stmt = db()->prepare($sql);
+		foreach ($params as $k => $v) { $stmt->bindValue($k, $v); }
+		$stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+		$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+		$stmt->execute();
+		$rows = $stmt->fetchAll();
+		json_ok(['data' => $rows, 'page' => $page, 'limit' => $limit, 'total' => $total]);
+	}
+
+	// Default — helper message
+	json_ok([
+		'message' => 'API ready',
+		'endpoints' => [
+			'POST /API.php/setup' => 'Create table `article`',
+			'POST /API.php/article' => 'Insert new article (JSON body)',
+			'GET  /API.php/article' => 'List articles (?page=&limit=&status=&tag=)',
+		],
+	]);
+} catch (Throwable $e) {
+	json_error('Server error: ' . $e->getMessage(), 500);
+}
+
+
+

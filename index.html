@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Demo nhập tên</title>
+    <style>
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 24px; }
+        .card { max-width: 520px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; }
+        input[type="text"] { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 16px; }
+        button { margin-top: 12px; padding: 10px 14px; background: #2563eb; color: white; border: 0; border-radius: 8px; cursor: pointer; }
+        button:disabled { background: #94a3b8; cursor: not-allowed; }
+        .result { margin-top: 16px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; white-space: pre-wrap; }
+        .error { color: #b91c1c; }
+    </style>
+    <script>
+        async function sendName(e) {
+            e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            const name = document.getElementById('name').value.trim();
+            const out = document.getElementById('output');
+            out.textContent = '';
+            if (!name) {
+                out.textContent = 'Vui lòng nhập tên';
+                out.classList.add('error');
+                return;
+            }
+            out.classList.remove('error');
+            btn.disabled = true;
+            try {
+                const res = await fetch('API.php?name=' + encodeURIComponent(name));
+                const data = await res.json();
+                const isSuccess = (data && (data.ok === true || data.status === 'success'));
+                const message = (data && (data.message || data.name)) || '';
+                if (isSuccess) {
+                    out.textContent = message || JSON.stringify(data, null, 2);
+                } else {
+                    out.textContent = message || (data && data.error) || 'Có lỗi xảy ra';
+                    out.classList.add('error');
+                }
+            } catch (err) {
+                out.textContent = 'Lỗi mạng: ' + err;
+                out.classList.add('error');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+    </script>
+    
+    <!-- Nếu muốn lưu DB thay vì in tên, đổi URL trong fetch thành 'data.php?name=' -->
+</head>
+<body>
+    <div class="card">
+        <h2>Nhập tên và nhận kết quả ngay</h2>
+        <form onsubmit="sendName(event)">
+            <label for="name">Tên của bạn</label>
+            <input id="name" type="text" placeholder="Ví dụ: An" />
+            <button id="submitBtn" type="submit">Gửi</button>
+        </form>
+        <div id="output" class="result"></div>
+    </div>
+</body>
+</html>
+
+
