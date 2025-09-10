@@ -1,64 +1,45 @@
 <?php
-header('Content-Type: application/json; charset=utf-8');
+header("Content-Type: application/json; charset=utf-8");
 
-$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$name = null;
-
-if ($method === 'GET') {
-	$name = isset($_GET['name']) ? trim((string)$_GET['name']) : null;
-} else {
-	// Try POST form first
-	if (isset($_POST['name'])) {
-		$name = trim((string)$_POST['name']);
-	} else {
-		// Fallback to JSON body: { "name": "Your Name" }
-		$rawInput = file_get_contents('php://input');
-		if ($rawInput !== false && $rawInput !== '') {
-			$decoded = json_decode($rawInput, true);
-			if (json_last_error() === JSON_ERROR_NONE && isset($decoded['name'])) {
-				$name = trim((string)$decoded['name']);
-			}
-		}
-	}
+// Kết nối MySQL
+$conn = new mysqli("localhost", "root", "", "database");
+if ($conn->connect_error) {
+    http_response_code(500);
+    echo json_encode(["error" => "Kết nối thất bại: " . $conn->connect_error], JSON_UNESCAPED_UNICODE);
+    exit();
 }
+$conn->set_charset("utf8mb4");
 
-if ($name === null || $name === '') {
-	http_response_code(400);
-	echo json_encode([
-		'ok' => false,
-		'error' => 'Missing "name" parameter',
-	], JSON_UNESCAPED_UNICODE);
-	exit;
-}
+// Lấy từ khóa từ GET hoặc POST
+$keyword = isset($_REQUEST['q']) ? trim($_REQUEST['q']) : '';
 
-echo json_encode([
-	'ok' => true,
-	'name' => $name,
-	'message' => "Xin chào, $name",
-], JSON_UNESCAPED_UNICODE);
+if ($keyword != "") {
+    $sql = "SELECT article_id, article_link, article_title, article_author, article_date 
+            FROM article 
+            WHERE (article_link LIKE ? OR article_title LIKE ?)
+            AND article_status = 1
+            ORDER BY article_date DESC";
 
-// =====
+    $stmt = $conn->prepare($sql);s
 
-// Thiết lập header để trả về JSON
-header('Content-Type: application/json');
+    $like = "%".$keyword."%";
+    $stmt->bind_param("ss", $like, $like);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
-// Kiểm tra nếu request là POST
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Lấy dữ liệu từ body
-    $input = json_decode(file_get_contents('php://input'), true);
-    
-    // Kiểm tra xem có trường 'name' không
-    if (isset($input['name']) && !empty($input['name'])) {
-        $name = $input['name'];
-        echo json_encode(['message' => 'Tên của bạn là: ' . htmlspecialchars($name)]);
-    } else {
-        http_response_code(400);
-        echo json_encode(['error' => 'Vui lòng cung cấp tên']);
+    $articles = [];
+    while ($row = $result->fetch_assoc()) {
+        $articles[] = $row;
     }
+
+    echo json_encode([
+        "keyword" => $keyword,
+        "count"   => count($articles),
+        "results" => $articles
+    ], JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT);
 } else {
-    http_response_code(405);
-    echo json_encode(['error' => 'Phương thức không được hỗ trợ']);
+    echo json_encode(["error" => "Vui lòng nhập từ khóa"], JSON_UNESCAPED_UNICODE);
 }
+
+$conn->close();
 ?>
-
-
